@@ -7,7 +7,6 @@ on:
 
 permissions:
   contents: write
-  workflows: write
 
 jobs:
   sync:
@@ -29,4 +28,4 @@ jobs:
           git merge --ff-only upstream/main
 
       - name: Push to fork
-        run: git push origin main --tags
+        run: git push origin main
