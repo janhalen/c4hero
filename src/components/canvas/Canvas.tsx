@@ -6,6 +6,7 @@ import {
   useNodesState,
   useEdgesState,
   useReactFlow,
+  useStore,
   type Node,
   type Edge,
   type OnSelectionChangeParams,
@@ -642,23 +643,36 @@ export default function Canvas() {
     }
   }, [onNodesChange, fitContentNodes, rebuildOverlays])
 
-  // Center view on newly created element
+  // Center view on newly created element (e.g. focused from the interview).
   const focusElementId = useWorkspaceStore((s) => s.focusElementId)
   const clearFocusElement = useWorkspaceStore((s) => s.clearFocusElement)
   useEffect(() => {
     if (!focusElementId) return
-    clearFocusElement()
-    // Wait a frame for React Flow to render the new node
-    requestAnimationFrame(() => {
-      const node = reactFlowInstance.getNode(focusElementId)
-      if (node) {
-        reactFlowInstance.setCenter(
-          node.position.x + (node.measured?.width ?? 200) / 2,
-          node.position.y + (node.measured?.height ?? 100) / 2,
-          { duration: 300, zoom: reactFlowInstance.getZoom() },
-        )
+    const targetId = focusElementId
+    // A focus often switches the active view first, which remounts the canvas
+    // nodes — so the target may not exist for several frames. Poll a bounded
+    // number of frames instead of giving up after one, or the view changes but
+    // the canvas never frames the element (left off-screen). Clear the one-shot
+    // focus only once we've acted (or exhausted attempts), not up front.
+    let raf = 0
+    let attempts = 0
+    const run = () => {
+      const node = reactFlowInstance.getNode(targetId)
+      if (!node) {
+        if (attempts++ < 60) { raf = requestAnimationFrame(run); return }
+        clearFocusElement()
+        return
       }
-    })
+      // Center on the element but keep the current zoom level.
+      reactFlowInstance.setCenter(
+        node.position.x + (node.measured?.width ?? 200) / 2,
+        node.position.y + (node.measured?.height ?? 100) / 2,
+        { duration: 300, zoom: reactFlowInstance.getZoom() },
+      )
+      clearFocusElement()
+    }
+    raf = requestAnimationFrame(run)
+    return () => cancelAnimationFrame(raf)
   }, [focusElementId, clearFocusElement, reactFlowInstance])
 
   // Suppress inspector opening during drag (works on touch too).
@@ -773,6 +787,18 @@ export default function Canvas() {
       inspectorTimer.current = null
     }
     isDragging.current = false
+    // Also clear on unmount — without this, a group/element selection made
+    // just before the workspace changes or the canvas otherwise unmounts
+    // leaves this timer pending. It still fires later against whatever is
+    // NOW mounted (selectGroup/selectElements are stable store actions,
+    // unscoped to any one Canvas instance), silently selecting the wrong
+    // group/element in an unrelated view.
+    return () => {
+      if (inspectorTimer.current) {
+        clearTimeout(inspectorTimer.current)
+        inspectorTimer.current = null
+      }
+    }
   }, [activeViewKey])
 
   const onSelectionChange = useCallback(
@@ -887,6 +913,21 @@ export default function Canvas() {
     pointerEvents: minimapMode === 'always' || minimapVisible ? 'auto' : 'none',
   }), [minimapMode, minimapVisible])
 
+  // Fade the floating chrome only while the user actually *moves* the pane.
+  // `paneDragging` is true the moment a pointer goes down on the pane (even for a
+  // plain click), so we additionally require an onMove to fire — that excludes
+  // clicks (no movement), and resizes/zoom/programmatic moves aren't pane-drags.
+  const paneDragging = useStore((s) => s.paneDragging)
+  const draggingRef = useRef(false)
+  useEffect(() => {
+    draggingRef.current = paneDragging
+    if (!paneDragging) document.documentElement.removeAttribute('data-canvas-panning')
+  }, [paneDragging])
+
+  const onMove = useCallback(() => {
+    if (draggingRef.current) document.documentElement.setAttribute('data-canvas-panning', '')
+  }, [])
+
   const onMoveStart = useCallback(() => {
     setMinimapVisible(true)
     if (hideTimer.current) clearTimeout(hideTimer.current)
@@ -902,6 +943,9 @@ export default function Canvas() {
       saveViewport(workspaceRef.current?.name, activeViewKey, rf.getViewport())
     }
   }, [activeViewKey])
+
+  // Safety: never leave the chrome faded if we unmount mid-drag.
+  useEffect(() => () => document.documentElement.removeAttribute('data-canvas-panning'), [])
 
   const multiSelectModeRef = useRef(multiSelectMode)
   useEffect(() => { multiSelectModeRef.current = multiSelectMode }, [multiSelectMode])
@@ -1068,6 +1112,7 @@ export default function Canvas() {
         onNodeClick={onNodeClick}
         onNodeDoubleClick={onNodeDoubleClick}
         onMoveStart={onMoveStart}
+        onMove={onMove}
         onMoveEnd={onMoveEnd}
         onNodeDragStart={onNodeDragStart}
         onNodeDrag={onNodeDrag}

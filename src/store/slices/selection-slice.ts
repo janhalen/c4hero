@@ -1,9 +1,9 @@
 import type { StateCreator } from 'zustand'
 import type { WorkspaceState } from '../workspace-types'
-
 /** Selection state: which element(s), relationship, or group is currently
- *  highlighted in the canvas / inspector. Selecting any canvas object closes
- *  the Highlighter panel so the Inspector doesn't stack underneath it. */
+ *  highlighted in the canvas / inspector. Selecting any canvas object closes the
+ *  Highlighter panel. The assistant lives in the bottom-left dock and is
+ *  independent of the inspector, so selecting no longer closes it. */
 export type SelectionSlice = Pick<WorkspaceState,
   | 'selectedElementIds' | 'selectedRelationshipId' | 'selectedGroupId'
   | 'selectElements' | 'selectRelationship' | 'selectGroup' | 'clearSelection'
