@@ -40,6 +40,11 @@ export const createLifecycleSlice: StateCreator<
       selectedRelationshipId: null,
       selectedGroupId: null,
       focusElementId: null, // prevent stale scroll-to signal from a previous workspace
+      // Close the assistant/settings so an open panel doesn't reopen off the
+      // previous workspace when the next canvas mounts (App renders on these flags).
+      aiPanelOpen: false,
+      aiSettingsOpen: false,
+      aiPanelFeature: null,
       pendingDelete: null,  // dismiss any in-flight delete confirmation from a previous workspace
       pendingZoomConfirm: null,
       createViewDefaults: null,
@@ -66,6 +71,9 @@ export const createLifecycleSlice: StateCreator<
       selectedRelationshipId: null,
       selectedGroupId: null,
       focusElementId: null,
+      aiPanelOpen: false,
+      aiSettingsOpen: false,
+      aiPanelFeature: null,
       pendingDelete: null, // dismiss any in-flight delete confirmation dialog
       pendingZoomConfirm: null,
       createViewDefaults: null,

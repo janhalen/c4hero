@@ -15,14 +15,19 @@ export default function FloatingInspector() {
   const hasRelationship = !!workspace && selectedRelId !== null && getRelationshipById(workspace, selectedRelId) !== undefined
   const hasGroup = !!workspace && selectedGroupId !== null && workspace.model.groups.some(g => g.id === selectedGroupId)
 
-  // Only render when a node, relationship, or group is explicitly selected
+  // Only render when a node, relationship, or group is explicitly selected.
   const visible = hasElement || hasRelationship || hasGroup
+  // The single rendered/active condition — the outside-click effect must match it
+  // exactly, or its document listener stays attached while the inspector div is
+  // unmounted and dismisses selections from clicks inside the panel. The assistant
+  // now lives in the bottom-left dock, so it no longer hides the inspector.
+  const shown = !!workspace && !multiSelectMode && visible
 
   // Dismiss on outside click. Clicks on canvas nodes/edges run their own
   // selection logic synchronously after this mousedown clears, so they end
   // up selected and the inspector re-shows with the new target.
   useEffect(() => {
-    if (!visible) return
+    if (!shown) return
     function onDocPointer(e: MouseEvent | TouchEvent) {
       const target = e.target as Node | null
       if (!target) return
@@ -39,31 +44,33 @@ export default function FloatingInspector() {
       document.removeEventListener('mousedown', onDocPointer)
       document.removeEventListener('touchstart', onDocPointer)
     }
-  }, [visible, clearSelection])
+  }, [shown, clearSelection])
 
-  if (!workspace || multiSelectMode) return null
+  if (!shown) return null
 
   return (
     <div
       ref={containerRef}
+      data-canvas-chrome="inspector"
       style={{
+        // Frame matched to the AI assistant panel so the two read as a set.
         position: 'fixed',
-        top: 72,
+        top: 64,
         right: 14,
         zIndex: 50,
-        width: 260,
-        maxHeight: 'calc(100dvh - 86px)',
+        width: 'min(360px, calc(100vw - 28px))',
+        maxHeight: 'calc(100dvh - 136px)',
         overflowY: 'auto',
-        borderRadius: 'var(--radius-lg)',
-        border: '1px solid var(--color-border)',
-        background: 'var(--glass-bg)',
+        borderRadius: 12,
+        border: '1px solid rgba(88,166,255,0.16)',
+        background: 'var(--glass-bg-heavy)',
         backdropFilter: 'blur(var(--glass-blur))',
         WebkitBackdropFilter: 'blur(var(--glass-blur))',
-        boxShadow: 'var(--glass-shadow)',
-        opacity: visible ? 1 : 0,
-        transform: visible ? 'translateY(0)' : 'translateY(-8px)',
-        pointerEvents: visible ? 'auto' : 'none',
-        transition: 'opacity 0.18s ease, transform 0.18s ease',
+        boxShadow: '0 16px 64px rgba(0,0,0,0.6)',
+        // The panel mounts/unmounts (it must — the outside-click listener has to
+        // match the rendered condition exactly, see `shown`), so a CSS transition
+        // on style values never fires. Animate the entrance on mount instead.
+        animation: 'inspector-in 0.18s ease both',
       }}
       aria-label="Element properties"
     >

@@ -1,6 +1,7 @@
 import type { StateCreator } from 'zustand'
 import type { WorkspaceState } from '../workspace-types'
 import { findChildViewHelper as findChildView, getZoomTarget } from '../workspace-selectors'
+import { clearSelectionDraft } from '../workspace-helpers'
 import { announce } from '@/lib/announce'
 
 /** If any Highlighter filter is non-empty, snapshot all four into
@@ -36,7 +37,7 @@ export type NavigationSlice = Pick<WorkspaceState,
   | 'focusElementId' | 'clearFocusElement'
   | 'setActiveView' | 'drillInto' | 'zoomInto'
   | 'confirmZoomCreate' | 'cancelZoomConfirm' | 'openCreateViewFromZoom'
-  | 'setCreateViewDefaults' | 'navigateBack'
+  | 'setCreateViewDefaults' | 'navigateBack' | 'focusViewForElements'
 >
 
 export const createNavigationSlice: StateCreator<
@@ -52,6 +53,41 @@ export const createNavigationSlice: StateCreator<
   focusElementId: null,
 
   clearFocusElement: () => set({ focusElementId: null }),
+
+  // After a batch (AI) apply that suppressed per-op view switching, navigate
+  // ONCE to the view that best shows the newly-created elements. Prefer DEPTH:
+  // the most specific view tier (component > container > context > landscape)
+  // that contains any new element wins, tie-broken by count within the tier.
+  // (A plain max-count would bias to landscape/context, which accumulate every
+  // new system+person, so "add a container/component" would land you on a
+  // high-level diagram instead of the deep elements you just created.)
+  focusViewForElements: (ids) => set((s) => {
+    if (!s.workspace || ids.length === 0) return
+    const idSet = new Set(ids)
+    const tiers = [
+      s.workspace.views.componentViews,
+      s.workspace.views.containerViews,
+      s.workspace.views.systemContextViews,
+      s.workspace.views.systemLandscapeViews,
+    ]
+    let best: string | null = null
+    for (const tier of tiers) {
+      let bestCount = 0
+      for (const v of tier) {
+        const count = v.elements.reduce((n, e) => n + (idSet.has(e.id) ? 1 : 0), 0)
+        if (count > bestCount) { bestCount = count; best = v.key }
+      }
+      if (best) break // most-specific tier with any new element wins
+    }
+    if (best && best !== s.activeViewKey) {
+      if (s.activeViewKey) s.viewHistory.push(s.activeViewKey)
+      s.activeViewKey = best
+      clearSelectionDraft(s)
+      // Match the other view-switches — don't carry stale highlight filters into
+      // the destination view.
+      if (clearHighlightFiltersWithStash(s)) announce('Highlighter cleared on view change')
+    }
+  }),
 
   setActiveView: (key) => set((s) => {
     const changed = s.activeViewKey !== key

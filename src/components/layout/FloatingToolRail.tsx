@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useRef, useState } from 'react'
+import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
 import { useEscapeKey } from '@/hooks/useEscapeKey'
 import { useReactFlow } from '@xyflow/react'
 import { useWorkspaceStore, getActiveView } from '@/store/workspace'
@@ -13,7 +13,11 @@ import {
   Maximize2,
   Settings,
   MousePointerClick,
+  Sparkles,
 } from 'lucide-react'
+import { useAiSettingsStore, isAiReady } from '@/store/ai-settings'
+import { missingInfoGaps } from '@/lib/ai'
+import { viewScopeIds } from '@/components/ai/sweepModel'
 import { useArrowNav } from '@/hooks/useArrowNav'
 import { useBreakpoint } from '@/hooks/useBreakpoint'
 import { useFlyoutFocus } from '@/hooks/useFlyoutFocus'
@@ -40,7 +44,25 @@ export default function FloatingToolRail() {
   const activeViewKey = useWorkspaceStore((s) => s.activeViewKey)
   const resetAndRelayout = useWorkspaceStore((s) => s.resetAndRelayout)
 
-
+  const setAiPanelOpen = useWorkspaceStore((s) => s.setAiPanelOpen)
+  const setAiSettingsOpen = useWorkspaceStore((s) => s.setAiSettingsOpen)
+  // The assistant renders on aiPanelOpen OR aiSettingsOpen, so the button must
+  // reflect/toggle either — otherwise it can't dismiss a settings-opened panel.
+  const aiOpen = useWorkspaceStore((s) => s.aiPanelOpen || s.aiSettingsOpen)
+  const aiReady = useAiSettingsStore(isAiReady)
+  // Launcher visibility. When off, the assistant is still reachable from the
+  // command palette (I) and the app menu — hiding the button doesn't disable AI.
+  const showLauncher = useAiSettingsStore((s) => s.enabled)
+  const [aiHover, setAiHover] = useState(false)
+  // Pending quick-fixes the assistant can resolve — surfaced as a count badge on
+  // the AI button so the work waiting inside is visible without opening it.
+  // Scoped to the *current view* (matching the assistant's default "this view"
+  // scope), not the whole model.
+  const pendingCount = useMemo(() => {
+    if (!aiReady || !workspace) return 0
+    const v = activeViewKey ? getActiveView(workspace, activeViewKey) : undefined
+    return missingInfoGaps(workspace, viewScopeIds(v)).length
+  }, [aiReady, workspace, activeViewKey])
 
   const reactFlow = useReactFlow()
   const breakpoint = useBreakpoint()
@@ -120,17 +142,78 @@ export default function FloatingToolRail() {
   return (
     <>
     <div
-      className="glass-panel"
-      role="toolbar"
-      aria-label="Canvas tools"
-      data-canvas-fit-chrome={fitChromeSide}
-      data-canvas-chrome="tool-rail"
+      data-canvas-chrome="tool-rail-wrap"
       style={{
         position: 'fixed',
         left: 14,
         top: '50%',
         transform: 'translateY(-50%)',
         zIndex: 50,
+        display: 'flex',
+        flexDirection: 'column',
+        // Stretch so the AI button matches the tool rail's width.
+        alignItems: 'stretch',
+        gap: 10,
+      }}
+    >
+      {/* AI assistant — its own button above the tool rail, shown only when the
+          launcher is enabled (Show AI assistant). Two states: a filled accent
+          background while the dialog is open, and a status dot (green = key set,
+          grey = needs setup). Hidden entirely when the launcher is turned off. */}
+      {showLauncher && (
+      <button
+        type="button"
+        className="glass-panel"
+        title={aiOpen ? 'Hide AI assistant (I)' : aiReady ? 'AI assistant (I)' : 'AI assistant — set up your key (I)'}
+        aria-label={pendingCount > 0 ? `AI assistant — ${pendingCount} pending` : 'AI assistant'}
+        aria-pressed={aiOpen}
+        data-active={aiOpen ? 'true' : undefined}
+        onClick={() => {
+          const s = useWorkspaceStore.getState()
+          if (s.aiPanelOpen || s.aiSettingsOpen) { setAiPanelOpen(false); setAiSettingsOpen(false) }
+          else setAiPanelOpen(true)
+        }}
+        onPointerEnter={() => setAiHover(true)}
+        onPointerLeave={() => setAiHover(false)}
+        style={{
+          position: 'relative',
+          minWidth: 44,
+          height: 44,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          borderRadius: 'var(--radius-lg)',
+          cursor: 'pointer',
+          // Self-contained hover so it reads consistently: keep the glass fill
+          // and brighten on hover. The shared hover-lift class instead *replaces*
+          // the background, which made this standalone glass button flicker.
+          transition: 'filter 0.12s ease, color 0.12s ease, background 0.12s ease',
+          filter: aiHover ? 'brightness(1.18)' : undefined,
+          // Open = solid accent fill with a dark icon (clearly "on"); closed =
+          // accent icon when ready, muted when off.
+          color: aiOpen ? 'var(--color-bg-primary)' : aiReady ? 'var(--color-accent)' : 'var(--color-text-muted)',
+          background: aiOpen ? 'var(--color-accent)' : undefined,
+          borderColor: aiOpen ? 'var(--color-accent)' : undefined,
+        }}
+      >
+        <Sparkles size={18} style={{ pointerEvents: 'none' }} />
+        {aiReady && pendingCount > 0 && !aiOpen ? (
+          <span style={{ pointerEvents: 'none', position: 'absolute', top: -5, right: -5, minWidth: 18, height: 18, padding: '0 4px', borderRadius: 9, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#22c55e', color: '#05300f', fontSize: 11, fontWeight: 800, lineHeight: 1, border: '2px solid var(--color-bg-primary)' }}>
+            {pendingCount > 9 ? '9+' : pendingCount}
+          </span>
+        ) : (
+          <span style={{ pointerEvents: 'none', position: 'absolute', top: 7, right: 7, width: 7, height: 7, borderRadius: '50%', background: aiReady ? '#22c55e' : 'var(--color-text-muted)', border: `2px solid ${aiOpen ? 'var(--color-accent)' : 'var(--glass-bg-heavy)'}` }} />
+        )}
+      </button>
+      )}
+
+    <div
+      className="glass-panel"
+      role="toolbar"
+      aria-label="Canvas tools"
+      data-canvas-fit-chrome={fitChromeSide}
+      data-canvas-chrome="tool-rail"
+      style={{
         display: 'flex',
         flexDirection: 'column',
         alignItems: 'center',
@@ -240,6 +323,7 @@ export default function FloatingToolRail() {
         onClick={() => setCanvasSettingsOpen(true)}
       />
     </div>
+    </div>
     {addPanelOpen && breakpoint === 'mobile' && (
       <div ref={addElementFlyoutRef} data-mobile-add-flyout>
         <AddElementPanel onClose={() => setAddPanelOpen(false)} />
@@ -295,7 +379,9 @@ const RailBtn = forwardRef<HTMLButtonElement, {
         alignItems: 'center',
         justifyContent: 'center',
         borderRadius: 10,
-        margin: '1px 4px',
+        // No horizontal margin: keeps the rail the same width as the 44px AI
+        // button above it. The stretch wrapper then matches them exactly.
+        margin: '1px 0',
         ...(active ? { background: 'var(--color-accent-active)' } : {}),
         color: active ? 'var(--color-accent)' : color ?? 'var(--color-text-muted)',
         cursor: onClick ? 'pointer' : 'default',

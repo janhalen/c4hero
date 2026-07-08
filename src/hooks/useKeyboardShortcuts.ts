@@ -9,6 +9,7 @@ import { extractSidecar, serializeSidecar } from '@/lib/sidecar'
 import { createLogger } from '@/lib/logger'
 import { fitContentNodesToViewport } from '@/lib/fitViewport'
 import { parseWorkspaceDocument } from '@/lib/workspaceDocument'
+import { isCanvasRoute } from '@/lib/routes'
 
 const log = createLogger('keyboard')
 
@@ -142,6 +143,23 @@ const GLOBAL_SHORTCUTS: Record<string, KeyHandler> = {
   },
   'a': (store) => {
     if (store.workspace) store.setAddElementPanelOpen(!store.addElementPanelOpen)
+  },
+  'i': (store) => {
+    // The AI panel only renders on a diagram route (see App.tsx `onCanvas`).
+    // Toggling it elsewhere would clear the selection and pop the panel open
+    // later when a diagram is finally opened, so gate it on the same condition.
+    if (!store.workspace) return
+    if (!isCanvasRoute(window.location.pathname)) return
+    if (store.aiPanelOpen) {
+      store.setAiPanelOpen(false)
+      store.setAiSettingsOpen(false)
+    } else {
+      store.setAiPanelOpen(true)
+      // aiSettingsOpen without aiPanelOpen is a stale state (setAiSettingsOpen
+      // normally forces both together) — normalize it instead of leaving a
+      // dangling settings flag armed under the freshly opened panel.
+      if (store.aiSettingsOpen) store.setAiSettingsOpen(false)
+    }
   },
   'h': (store) => {
     if (store.workspace) store.setHighlighterOpenFacet(store.highlighterOpenFacet ? null : 'tags')

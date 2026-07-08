@@ -5,8 +5,11 @@ import { useFocusTrap } from '@/hooks/useFocusTrap'
  *  - "center" — classic centered modal (default; backdrop covers viewport)
  *  - "shade"  — slide-down panel anchored to the top pill (no backdrop;
  *               clicking outside dismisses via an invisible click catcher,
- *               matching the existing `.shade-panel` CSS class) */
-type DialogPosition = 'center' | 'shade'
+ *               matching the existing `.shade-panel` CSS class)
+ *  - "docked" — right-edge rail, full height, non-modal (no backdrop; the canvas
+ *               stays visible and interactive). Closes via Escape or the panel's
+ *               own close button — there is no click-away catcher. */
+type DialogPosition = 'center' | 'shade' | 'docked'
 
 interface DialogShellProps {
   onClose: () => void
@@ -16,10 +19,12 @@ interface DialogShellProps {
   style?: React.CSSProperties
   /** Defaults to "center". Use "shade" for top-pill-anchored slide-downs. */
   position?: DialogPosition
+  /** Defaults to true. Disable when a child flow owns Escape for its own UX. */
+  closeOnEscape?: boolean
 }
 
 export default function DialogShell({
-  onClose, ariaLabel, children, className, style, position = 'center',
+  onClose, ariaLabel, children, className, style, position = 'center', closeOnEscape = true,
 }: DialogShellProps) {
   const trapRef = useFocusTrap<HTMLDivElement>()
   const previouslyFocusedRef = useRef<Element | null>(typeof document !== 'undefined' ? document.activeElement : null)
@@ -38,12 +43,13 @@ export default function DialogShell({
   // settles). React's synthetic event delegation also doesn't surface
   // document-level keydowns to nested handlers.
   useEffect(() => {
+    if (!closeOnEscape) return undefined
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') handleClose()
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [handleClose])
+  }, [closeOnEscape, handleClose])
 
   if (position === 'shade') {
     // Slide-down panel pattern: an invisible click-catcher behind the panel
@@ -68,6 +74,24 @@ export default function DialogShell({
           {children}
         </div>
       </>
+    )
+  }
+
+  if (position === 'docked') {
+    // Non-modal right-edge rail: no backdrop, so the canvas stays visible and
+    // clickable. Escape (global listener above) and the panel's close button
+    // dismiss it.
+    return (
+      <div
+        ref={trapRef}
+        role="dialog"
+        aria-label={ariaLabel}
+        className={className}
+        style={{ position: 'fixed', top: 0, right: 0, bottom: 0, zIndex: 60, ...style }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {children}
+      </div>
     )
   }
 
